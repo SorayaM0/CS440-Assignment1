@@ -1,29 +1,40 @@
 from grid import GridWorld
 from repeated_forward_astar import repeated_forward_astar
 
+def print_knowledge(knowledge, max_rows=10, max_cols=10):
+    r = min(len(knowledge), max_rows)
+    c = min(len(knowledge[0]), max_cols)
+    for i in range(r):
+        print(" ".join(knowledge[i][:c]))
+
 def main():
     attempts = 0
 
     while True:
         attempts += 1
 
-        grid = GridWorld(10, 10)
-        grid.generate()
+        true_grid = GridWorld(10, 10)
+        true_grid.generate()
 
-        # Force start/goal open for testing
-        grid.grid[0][0] = '.'
-        grid.grid[9][9] = '.'
+        # force start/goal open for testing
+        true_grid.grid[0][0] = '.'
+        true_grid.grid[9][9] = '.'
 
-        start = (0, 0)
-        goal = (9, 9)
+        # agent knowledge: assumes unknown cells are open ('.')
+        knowledge = [['.' for _ in range(true_grid.cols)] for _ in range(true_grid.rows)]
 
-        expanded = repeated_forward_astar(grid, start, goal, tie_breaker="small_g")
+        result = repeated_forward_astar(true_grid, knowledge, (0, 0), (9, 9), tie_breaker="small_g")
 
-        # If a path exists, print and stop
-        if expanded is not None:
-            print(f"Found a path after {attempts} tries\n")
-            grid.display()
-            print("\nExpanded nodes:", expanded)
+        if result is not None:
+            print(f"Reached goal after {attempts} tries\n")
+
+            print("TRUE GRID:")
+            true_grid.display()
+
+            print("\nAGENT KNOWLEDGE (end):")
+            print_knowledge(knowledge)
+
+            print("\nStats:", result)
             break
 
 if __name__ == "__main__":

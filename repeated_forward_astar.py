@@ -8,7 +8,7 @@ class Node:
         self.g = math.inf
         self.h = 0
         self.parent = None
-        self.search = 0  # counter value when last initialized
+        self.search = 0
 
     def f(self):
         return self.g + self.h
@@ -16,121 +16,150 @@ class Node:
 def manhattan(n: Node, goal: Node) -> int:
     return abs(n.r - goal.r) + abs(n.c - goal.c)
 
-def neighbors(gridworld, n: Node):
-    # 4-neighbors; treat '#' as blocked
+def neighbors_from_knowledge(knowledge, n: Node):
+    rows = len(knowledge)
+    cols = len(knowledge[0])
+
     for dr, dc in [(1,0), (-1,0), (0,1), (0,-1)]:
         nr, nc = n.r + dr, n.c + dc
-        if 0 <= nr < gridworld.rows and 0 <= nc < gridworld.cols:
-            if gridworld.grid[nr][nc] != '#':
+        if 0 <= nr < rows and 0 <= nc < cols:
+            if knowledge[nr][nc] != '#':
                 yield nr, nc
 
-def compute_path(start: Node, goal: Node, gridworld, nodes, counter: int, tie_breaker: str):
+def astar_on_knowledge(knowledge, start_rc, goal_rc, tie_breaker="small_g"):
     """
-    Returns: (found_path_bool, expanded_count)
+    A* on the agent's knowledge grid.
+    Returns (path_as_list_of_rc, expanded_count) or (None, expanded_count).
     """
+    rows = len(knowledge)
+    cols = len(knowledge[0])
+
+    (sr, sc) = start_rc
+    (gr, gc) = goal_rc
+
+    # if knowledge thinks start/goal blocked, no path
+    if knowledge[sr][sc] == '#' or knowledge[gr][gc] == '#':
+        return None, 0
+
+    start = Node(sr, sc)
+    goal = Node(gr, gc)
+
+    start.g = 0
+    start.h = manhattan(start, goal)
+
     open_heap = []
-    in_open = set()
+    push_id = 0
     expanded = 0
-    push_id = 0  # strictly increasing to avoid Node comparisons in heap
 
     def push(n: Node):
         nonlocal push_id
-        # tie-breaking:
-        # small_g => prefer smaller g when f ties
-        # large_g => prefer larger g when f ties  (implemented via -g)
-        if tie_breaker == "small_g":
-            tie = n.g
-        else:
-            tie = -n.g
-
+        # small_g: tie prefers smaller g
+        # large_g: tie prefers larger g (use -g)
+        tie = n.g if tie_breaker == "small_g" else -n.g
         heapq.heappush(open_heap, (n.f(), tie, push_id, n))
-        in_open.add((n.r, n.c))
         push_id += 1
+
+    # best g found map + parent map (simpler than storing Node grid)
+    best_g = {(sr, sc): 0}
+    parent = {}
 
     push(start)
 
-    # While OPEN not empty and g(goal) > min f in OPEN
-    while open_heap and goal.g > open_heap[0][0]:
-        _, _, _, s = heapq.heappop(open_heap)
-        if (s.r, s.c) not in in_open:
+    while open_heap:
+        _, _, _, cur = heapq.heappop(open_heap)
+
+        # stale check
+        if best_g.get((cur.r, cur.c), math.inf) != cur.g:
             continue
-        in_open.remove((s.r, s.c))
 
         expanded += 1
 
-        for nr, nc in neighbors(gridworld, s):
-            succ = nodes[nr][nc]
+        if (cur.r, cur.c) == (gr, gc):
+            # rebuild path
+            path = []
+            at = (gr, gc)
+            while at != (sr, sc):
+                path.append(at)
+                at = parent[at]
+            path.reverse()
+            return path, expanded
 
-            if succ.search < counter:
-                succ.g = math.inf
-                succ.search = counter
-                succ.parent = None
+        for nr, nc in neighbors_from_knowledge(knowledge, cur):
+            ng = cur.g + 1
+            if ng < best_g.get((nr, nc), math.inf):
+                best_g[(nr, nc)] = ng
+                parent[(nr, nc)] = (cur.r, cur.c)
 
-            # cost is 1 per move
-            if succ.g > s.g + 1:
-                succ.g = s.g + 1
-                succ.parent = s
+                nxt = Node(nr, nc)
+                nxt.g = ng
+                nxt.h = abs(nr - gr) + abs(nc - gc)
+                push(nxt)
 
-                # update priority: easiest way is push again (lazy)
-                push(succ)
+    return None, expanded
 
-    return (goal.g < math.inf), expanded
-
-def repeated_forward_astar(gridworld, start, goal, tie_breaker="small_g"):
+def repeated_forward_astar(true_grid, knowledge, start, goal, tie_breaker="small_g"):
     """
-    For now: uses the full gridworld as known (good for testing).
-    Returns expanded node count, or None if no path.
+    TRUE Repeated Forward A* with discovery.
+    - Plans with A* on knowledge.
+    - Moves step-by-step.
+    - After each move, senses 4-neighbors in the TRUE grid and updates knowledge.
+    Returns dict with stats or None if unreachable.
     """
-    rows, cols = gridworld.rows, gridworld.cols
-    nodes = [[Node(r, c) for c in range(cols)] for r in range(rows)]
+    (sr, sc) = start
+    (gr, gc) = goal
 
-    sr, sc = start
-    gr, gc = goal
-    sstart = nodes[sr][sc]
-    sgoal = nodes[gr][gc]
-
-    # Safety: start/goal must not be blocked
-    if gridworld.grid[sr][sc] == '#' or gridworld.grid[gr][gc] == '#':
+    # start/goal must be unblocked in the TRUE grid
+    if true_grid.grid[sr][sc] == '#' or true_grid.grid[gr][gc] == '#':
         return None
 
-    counter = 0
+    # initialize: agent knows neighbors of start (optional but helpful)
+    for (r, c), val in true_grid.sense_neighbors(sr, sc).items():
+        knowledge[r][c] = val
+
+    cur = (sr, sc)
+    moves = 0
+    replans = 0
     total_expanded = 0
 
-    while (sstart.r, sstart.c) != (sgoal.r, sgoal.c):
-        counter += 1
+    while cur != (gr, gc):
+        replans += 1
 
-        # init start/goal for this search
-        sstart.g = 0
-        sstart.search = counter
-        sstart.parent = None
-
-        sgoal.g = math.inf
-        sgoal.search = counter
-        sgoal.parent = None
-
-        # set heuristics for all nodes (simple + correct)
-        for r in range(rows):
-            for c in range(cols):
-                nodes[r][c].h = manhattan(nodes[r][c], sgoal)
-
-        found, expanded = compute_path(sstart, sgoal, gridworld, nodes, counter, tie_breaker)
+        path, expanded = astar_on_knowledge(knowledge, cur, (gr, gc), tie_breaker=tie_breaker)
         total_expanded += expanded
 
-        if not found:
+        if path is None:
+            # no presumed-unblocked path exists
             return None
 
-        # rebuild path and move one step
-        path = []
-        cur = sgoal
-        while cur and cur != sstart:
-            path.append(cur)
-            cur = cur.parent
-        path.reverse()
+        # Follow planned path until it breaks or goal reached
+        for step in path:
+            # If the TRUE grid has a block here, we discovered our assumption was wrong:
+            if true_grid.grid[step[0]][step[1]] == '#':
+                knowledge[step[0]][step[1]] = '#'
+                break
 
-        if not path:
-            break
+            # Move one step
+            cur = step
+            moves += 1
 
-        # move agent one step along planned path
-        sstart = path[0]
+            # Sense neighbors in TRUE grid, update knowledge
+            sensed = true_grid.sense_neighbors(cur[0], cur[1])
+            for (r, c), val in sensed.items():
+                knowledge[r][c] = val
 
-    return total_expanded
+            if cur == (gr, gc):
+                return {
+                    "expanded": total_expanded,
+                    "moves": moves,
+                    "replans": replans
+                }
+
+            # If next steps in remaining path are now known blocked in knowledge, break to replan
+            # (simple check: if any upcoming step is known '#', replan)
+            # We'll let the loop continue unless we want faster detection; this is enough for correctness.
+
+    return {
+        "expanded": total_expanded,
+        "moves": moves,
+        "replans": replans
+    }
