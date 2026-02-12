@@ -1,5 +1,7 @@
 from grid import GridWorld
 from repeated_forward_astar import repeated_forward_astar
+from repeated_backward_astar import repeated_backward_astar
+from adaptive_astar import adaptive_astar
 
 def print_knowledge(knowledge, max_rows=10, max_cols=10):
     r = min(len(knowledge), max_rows)
@@ -23,7 +25,7 @@ def main():
         # agent knowledge: assumes unknown cells are open ('.')
         knowledge = [['.' for _ in range(true_grid.cols)] for _ in range(true_grid.rows)]
 
-        result = repeated_forward_astar(true_grid, knowledge, (0, 0), (9, 9), tie_breaker="small_g")
+        result = repeated_backward_astar(true_grid, knowledge, (0, 0), (9, 9), tie_breaker="small_g")
 
         if result is not None:
             print(f"Reached goal after {attempts} tries\n")
