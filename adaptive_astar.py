@@ -1,120 +1,89 @@
+import heapq
+import math
 
-# TODO (Part 5):
-# Implement Adaptive A*
-## Adaptive A* finds the shortest paths with possibly different start states but the SAME goal state
-## Action costs can increase by arbitrary amounts between A* searches
+def manhattan_rc(a, b):
+    return abs(a[0] - b[0]) + abs(a[1] - b[1])
 
-import heapq, math
-
-# Node class
-class Node:
-    def __init__(self, r, c):
-        self.r = r
-        self.c = c
-        self.g = math.inf
-        self.h = 0
-        self.parent = None
-        self.search = 0
-
-    def f(self):
-        return self.g + self.h
-
-# Manhattan distance
-def manhattan(n: Node, goal: Node) -> int:
-    return abs(n.r - goal.r) + abs(n.c - goal.c)
-
-# Knowledge block
-def neighbors_from_knowledge(knowledge, n: Node):
+def neighbors_from_knowledge(knowledge, r, c):
     rows = len(knowledge)
     cols = len(knowledge[0])
-
     for dr, dc in [(1,0), (-1,0), (0,1), (0,-1)]:
-        nr, nc = n.r + dr, n.c + dc
-        if 0 <= nr < rows and 0 <= nc < cols:
-            if knowledge[nr][nc] != '#':
-                yield nr, nc
+        nr, nc = r + dr, c + dc
+        if 0 <= nr < rows and 0 <= nc < cols and knowledge[nr][nc] != '#':
+            yield nr, nc
 
-def adaptive_astar_on_knowledge(knowledge, start_rc, goal_rc, h_vals, tie_breaker = "small_g"):
-    ## Adaptive A* on knowledge grid
-    ##Returns (path, expanded_count, closed_set_g_values)
+def adaptive_astar_on_knowledge(knowledge, start_rc, goal_rc, h_vals, tie_breaker="large_g"):
+    """
+    Returns (path, expanded, closed_g)
+    path: list of rc from next step after start to goal (excludes start)
+    closed_g: dict of expanded nodes -> g
+    """
+    sr, sc = start_rc
+    gr, gc = goal_rc
 
-    rows = len(knowledge)
-    cols = len(knowledge[0])
-
-    (sr, sc) = start_rc
-    (gr, gc) = goal_rc
-
-    # if knowledge thinks start/goal blocked, no path
     if knowledge[sr][sc] == '#' or knowledge[gr][gc] == '#':
-        return None, {}
+        return None, 0, {}
 
-    start = Node(sr, sc)
-    goal = Node(gr, gc)
-
-    # goal = 0, heuristic = 
-    start.g = 0
-    start.h = h_vals.get((sr, sc), manhattan(start, goal))
+    best_g = {(sr, sc): 0}
+    parent = {}
+    closed_g = {}
+    expanded = 0
 
     open_heap = []
     push_id = 0
-    expanded = 0
 
-    def push(n: Node):
+    def push(rc, g):
         nonlocal push_id
-        # small_g: tie prefers smaller g
-        # large_g: tie prefers larger g (use -g)
-        tie = n.g if tie_breaker == "small_g" else -n.g
-        heapq.heappush(open_heap, (n.f(), tie, push_id, n))
+        # use adaptive h if available, else manhattan
+        h = h_vals.get(rc, manhattan_rc(rc, goal_rc))
+        f = g + h
+        tie = g if tie_breaker == "small_g" else -g
+        heapq.heappush(open_heap, (f, tie, push_id, rc))
         push_id += 1
 
-    # best g found map, best parent
-    # store g-values of expanded nodes to be adapted later into the algorithm
-    best_g = {(sr, sc): 0}
-    parent = {}
-    closed = {}
-
-    push(start)
+    push((sr, sc), 0)
 
     while open_heap:
-        _, _, _, cur = heapq.heappop(open_heap)
-        if best_g.get((cur.r, cur.c), math.inf) != cur.g:
-            continue
-        expanded += 1
-    closed[(cur.r, cur.c)] = cur.g # add to closed list
+        _, _, _, (r, c) = heapq.heappop(open_heap)
 
-    if (cur.r, cur.c) == (gr, gc):
-            # rebuild path
+        # skip if already expanded
+        if (r, c) in closed_g:
+            continue
+
+        cur_g = best_g.get((r, c), math.inf)
+        expanded += 1
+        closed_g[(r, c)] = cur_g
+
+        if (r, c) == (gr, gc):
             path = []
             at = (gr, gc)
             while at != (sr, sc):
                 path.append(at)
                 at = parent[at]
             path.reverse()
-            return path, expanded, closed
-    
-    for nr, nc in neighbors_from_knowledge(knowledge, cur):
-        ng = cur.g + 1
-        if ng < best_g.get((nr, nc), math.inf):
-            best_g[(nr, nc)] = ng
-            parent[(nr, nc)] = (cur.r, cur.c)
+            return path, expanded, closed_g
 
-            nxt = Node(nr, nc)
-            nxt.g = ng
-            nxt.h = h_vals.get((nr, nc), abs(nr - gr) + abs(nc - gc))
-            push(nxt)
+        for nr, nc in neighbors_from_knowledge(knowledge, r, c):
+            ng = cur_g + 1
+            if ng < best_g.get((nr, nc), math.inf):
+                best_g[(nr, nc)] = ng
+                parent[(nr, nc)] = (r, c)
+                push((nr, nc), ng)
 
-    return None, expanded, closed
+    return None, expanded, closed_g
 
-def adaptive_astar(true_grid, knowledge, start, goal, tie_breaker = "small_g"):
+def adaptive_astar(true_grid, knowledge, start, goal, tie_breaker="large_g"):
+    sr, sc = start
+    gr, gc = goal
 
-    (sr, sc) = start
-    (gr, gc) = goal
-
-    # start/goal must be unblocked in the grid
     if true_grid.grid[sr][sc] == '#' or true_grid.grid[gr][gc] == '#':
         return None
-    
-    h_val_list = {} # stores all adaptive h values
+
+    # seed knowledge with what agent can sense at start
+    for (r, c), val in true_grid.sense_neighbors(sr, sc).items():
+        knowledge[r][c] = val
+
+    h_vals = {}
     cur = (sr, sc)
     moves = 0
     replans = 0
@@ -122,43 +91,35 @@ def adaptive_astar(true_grid, knowledge, start, goal, tie_breaker = "small_g"):
 
     while cur != (gr, gc):
         replans += 1
-        path, expanded, g_values = adaptive_astar_on_knowledge(knowledge, cur, (gr, gc), h_val_list, tie_breaker = tie_breaker)
-        total_expanded = total_expanded
 
-        if path is None: return None  # no presumed-unblocked path exists
+        path, expanded, closed_g = adaptive_astar_on_knowledge(
+            knowledge, cur, (gr, gc), h_vals, tie_breaker=tie_breaker
+        )
+        total_expanded += expanded
 
-        # Adaptive A* updates the heuristic values with h(s) = g(s_goal) - g(s)
-        s_goal = g_values.get((gr, gc), None)
-        if s_goal is not None:
-            for state, g_s in g_values.items():
-                h_val_list[state] = s_goal - g_s
+        if path is None:
+            return None
 
-        # Same as in Repeated A* algorithm
-        # Follow planned path until it breaks or goal reached
+        # update adaptive heuristics: h(s) = g(goal) - g(s)
+        g_goal = closed_g.get((gr, gc))
+        if g_goal is not None:
+            for s, g_s in closed_g.items():
+                h_vals[s] = g_goal - g_s
+
+        # move along planned path, discovering blocks as we go
         for step in path:
-            # If the TRUE grid has a block here, we discovered our assumption was wrong:
             if true_grid.grid[step[0]][step[1]] == '#':
                 knowledge[step[0]][step[1]] = '#'
                 break
 
-            # Move one step
             cur = step
             moves += 1
 
-            # Sense neighbors in TRUE grid, update knowledge
             sensed = true_grid.sense_neighbors(cur[0], cur[1])
             for (r, c), val in sensed.items():
                 knowledge[r][c] = val
 
             if cur == (gr, gc):
-                return {
-                    "expanded": total_expanded,
-                    "moves": moves,
-                    "replans": replans
-                }
-    return {
-        "expanded": total_expanded, "moves": moves, "replans": replans
-    }
+                return {"expanded": total_expanded, "moves": moves, "replans": replans}
 
-
-
+    return {"expanded": total_expanded, "moves": moves, "replans": replans}
