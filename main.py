@@ -1,15 +1,26 @@
 from grid import GridWorld
-from repeated_forward_astar import repeated_forward_astar
+from adaptive_astar import adaptive_astar
 
 def main():
-    true_grid = GridWorld.load_from_file("maps/grid_02.txt")
-    true_grid.grid[0][0] = '.'
-    true_grid.grid[100][100] = '.'
+    # Load a known solvable map
+    g = GridWorld.load_from_file("maps/grid_02.txt")
 
-    knowledge = [['.' for _ in range(true_grid.cols)] for _ in range(true_grid.rows)]
+    # Make sure start and goal are open
+    g.grid[0][0] = '.'
+    g.grid[g.rows - 1][g.cols - 1] = '.'
 
-    result = repeated_forward_astar(true_grid, knowledge, (0, 0), (100, 100), tie_breaker="large_g")
-    print("Forward result:", result)
+    # Agent knowledge (initially assumes all open)
+    knowledge = [['.' for _ in range(g.cols)] for _ in range(g.rows)]
+
+    result = adaptive_astar(
+        g,
+        knowledge,
+        (0, 0),
+        (g.rows - 1, g.cols - 1),
+        tie_breaker="large_g"
+    )
+
+    print("Adaptive result:", result)
 
 if __name__ == "__main__":
     main()
