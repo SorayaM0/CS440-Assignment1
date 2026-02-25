@@ -1,5 +1,5 @@
 import os
-from grid import GridWorld
+from create_grid_worlds import GridWorld
 
 def main():
     os.makedirs("maps", exist_ok=True)

@@ -58,7 +58,7 @@ import json
 import copy
 
 from repeated_forward_astar import repeated_forward_astar
-from grid import GridWorld  
+from create_grid_worlds import GridWorld  
 
 
 #### example code

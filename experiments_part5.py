@@ -1,6 +1,6 @@
 import os
 import csv
-from grid import GridWorld
+from create_grid_worlds import GridWorld
 from repeated_forward_astar import repeated_forward_astar
 from adaptive_astar import adaptive_astar
 

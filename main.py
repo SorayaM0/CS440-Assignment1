@@ -1,4 +1,4 @@
-from grid import GridWorld
+from create_grid_worlds import GridWorld
 from adaptive_astar import adaptive_astar
 
 def main():
